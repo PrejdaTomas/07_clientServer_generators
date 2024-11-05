@@ -1,32 +1,22 @@
-from B_000_globalDependecies import plt
+from B_000_globalDependecies import constants
 from B_002_helperFuncs import convertString
-import B_003_objects as B_003_objects
+import B_003_objects_BKGROUND
+from B_004_objects_SERVER import CustomServerHandler
+
+#ip adresa =  193.84.167.78
+#python -m http.server <port> --bind 193.84.167.78
+# 193.84.167.78:<port>
 
 
-if __name__ == "__main__":
-    lojzek = B_003_objects.RandomPositionWrapper()
+if  __name__    ==      "__main__":
+    node_wrapper = B_003_objects_BKGROUND.NodeWrapperTarget(B_003_objects_BKGROUND.RandomPositionWrapper())
+    host_wrapper = B_003_objects_BKGROUND.HostWrapperTarget(node_wrapper)
     
-    plt.ion() #interactive on
-    figure = plt.figure()
-    ax = figure.add_subplot()
-    ax.grid()
-    scatter = ax.scatter([0], [0])
-    ax.set_xlim((-5, 5))
-    ax.set_ylim((-5, 5))
-    plt.show()
-    
-    
-    if True:
-        node_wrapper = B_003_objects.NodeWrapperTarget(lojzek)
-        host_wrapper = B_003_objects.HostWrapperTarget(node_wrapper)
-        
-        while True:
-            value       = input("What ")
-            sendVal     = convertString(value)
-            retVal      = [[*host_wrapper.send(sendVal)]] #vraci tuple, potrebuji list v listu
-            actualData  = scatter.get_offsets().tolist()
-            scatter.set_offsets(actualData + retVal)
+    server = CustomServerHandler(ip='193.84.167.78', port=8080)
+    while constants.run:
+        value           = input("user input: ")
+        sendVal         = convertString(value)
+        retVal          = [[*host_wrapper.send(sendVal)]] #vraci tuple, potrebuji list v listu
+        constants.run   = False if (sendVal == False or sendVal == "stop") else True
 
-            figure.canvas.draw()
-            plt.pause(0.01)
         

@@ -10,10 +10,12 @@ def info(func: callable) -> callable:
         for i, kwarg in enumerate(kwargs):
             printStatement += f"\t\t{i}: {kwarg}, {type(kwarg)}"
             if i < len(kwargs)-1 and len(args) >= 1: printStatement += "\n"
-        
+            
+        printStatement = printStatement[:-1]
         print(printStatement)
         value: any = func(*args, **kwargs)
         print(f"Done executing {func.__name__} with the return value {value}: {type(value)}\n")
         
         return value
     return inner
+
