@@ -111,6 +111,7 @@ class CustomServerClientNode(BaseHTTPRequestHandler):
         htmlStr: str = HTMLhandler.header("Client-Node test")
         self.wfile.write(htmlStr)
         self.__class__.calls += 1
+        print(f"{self}: do_GET done")
     
     def do_POST(self) -> None:
         content_length  = int(self.headers['Content-Length'])
@@ -146,31 +147,32 @@ class CustomServerHandlerClientNode:
     def startServer(self) -> HTTPServer:
         print(f"{self} started!")
         myServer = HTTPServer(server_address=(self._ip, self._port), RequestHandlerClass=CustomServerClientNode)
+        
+        # to serve_forever musi byt ve vlastnim vlaknu, proto to neslo
+        serveThread = threading.Thread(target=myServer.serve_forever)
+        serveThread.daemon=True
+        serveThread.start()
+        
         #snazim se dostat do dictu handleru jeho instanci
-
         conn = http.client.HTTPConnection(self._ip, self._port)
         conn.request("GET", "/")
-
-        #tady to mrzne
-        response = conn.getresponse()
-        #nefunguje
+        sleep(1)
+        
+        
         print(myServer.RequestHandlerClass.runningHandlers)
         myServer.RequestHandlerClass.runningHandlers[myServer] = myServer.RequestHandlerClass.runningHandlers[0]
         myServer.RequestHandlerClass.runningHandlers[0] = None
-        print(myServer.RequestHandlerClass.runnigHandlers)
         print(myServer)
-        #loop_thread = threading.Thread(
-        #    target=myServer.RequestHandlerClass.run_loop,
-        #    args=(myServer.RequestHandlerClass.runningServers[myServer.server_address],)
-        #)
+        print(myServer.RequestHandlerClass.runningHandlers)
+        print(myServer.RequestHandlerClass.runningHandlers[myServer])
+        print()
+        print()
         loop_thread = threading.Thread(
-                    target=myServer.run_loop)
+                    target=myServer.RequestHandlerClass.runningHandlers[myServer].run_loop)
         loop_thread.daemon = True  # This allows the thread to exit when the main program does
         loop_thread.start()
-
         
         
-        myServer.serve_forever()
         return myServer
     
     def stopServer(self) -> None:
@@ -185,9 +187,9 @@ class CustomServerHandlerClientNode:
 if __name__ == "__main__":
     server = CustomServerHandlerClientNode(ip='193.84.167.78', port=8080)
     try:
-        server.start_server()
+        server.startServer()
     except KeyboardInterrupt:
-        server.stop_server()
+        server.stopServer()
 
 #curl -X POST http://193.84.167.78:8080 -H "Content-Type: application/json" -d '{"name":"Alice","surname":"Pfeifer"}'     
         
