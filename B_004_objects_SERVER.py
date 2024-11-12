@@ -1,9 +1,13 @@
-from B_000_globalDependecies import typing,json,sleep,threading
-from B_002_helperFuncs import jsonQuotes
-import B_003_objects_BKGROUND
-import requests
-from http.server import HTTPServer, BaseHTTPRequestHandler, SimpleHTTPRequestHandler
+from __future__ import annotations
 import http.client
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import BaseRequestHandler
+
+from B_000_globalDependecies import typing, sleep,threading, constants
+from B_002_helperFuncs import convertString
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+from BaseClasses import Singleton
 
 #ip adresa =  193.84.167.78
 #python -m http.server <port> --bind 193.84.167.78
@@ -40,186 +44,173 @@ class HTMLhandler(object):
     
 
 
-from http.server import HTTPServer, BaseHTTPRequestHandler
-class CustomServer(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
-        
-        htmlStr: str = HTMLhandler.header("HELLO WORLD!")
-        self.wfile.write(htmlStr)
-    
-    def do_POST(self) -> None:
-        print("do_Post!")
-        content_length  = int(self.headers['Content-Length'])
-        post_data       = jsonQuotes(self.rfile.read(content_length)[1:-1].decode("utf-8"))
-        #pozor: json nemá rád mezery za dvoutečkou, začne to uvozovkami jednoduchymi, dvojte uvozovky nenacte - musim si jevyrobit z jednoduchych
-        print(f"Received POST data: {post_data}, {type(post_data)}")
-        
-        data            = json.loads(s=post_data)
-        name        = data.get("name", "World")
-        
-        response    = json.dumps({"message":f"Hello,{name}!" }).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-type", "application/json")
-        self.end_headers()
-        self.wfile.write(response)
-        
-class CustomServerHandler:
-    def __init__(self, ip: str= None, port: int= None) -> None:
-        self._ip: str = ip
-        self._port: int = port
-        self._server = self.startServer()
-    
-    
-    def startServer(self) -> HTTPServer:
-        print(f"{self} started!")
-        myServer = HTTPServer(server_address=(self._ip, self._port), RequestHandlerClass=CustomServer)
-        myServer.serve_forever()
-        return myServer
-    
-    def stopServer(self) -> None:
-        self.server.server_close()
-        print(f"{self} stopped!")
-    
-    def __repr__(self) -> str:
-        return f"<{self.__class__.__name__}:: {self._ip}:{self._port} @ <{hex(id(self))}>>"
-    
+class CustomHTTPServer_RequestReceiver(Singleton, HTTPServer):
+    userInputs: typing.Dict[CustomHTTPServer_Server, typing.List[typing.Any]]           = {}
+    results:    typing.DefaultDict[CustomHTTPServer_Server, typing.List[typing.Any]]    = {}
 
-class CustomServerClientNode(BaseHTTPRequestHandler):
-    runningServers: typing.Dict[str, typing.Self] = {}
-    runningResults: typing.Dict[typing.Self, float] = {}
-    runningHandlers: typing.Dict["CustomServerHandlerClientNode", typing.Self] = {}
-    calls: int = 0
-    #DOES NOTHING
-    #def __init__(self, *args, directory=None, **kwargs):
-    #    super().__init__(*args, **kwargs)
-    #    print("init!")
-    #    self.__class__.runningHandlers[0] = self        
+    def __new__(cls, *args, **kwargs) -> typing.Self:
+        return super(CustomHTTPServer_RequestReceiver, cls).__new__(cls, *args, **kwargs)
     
-    def do_GET(self) -> None:
-        print("GET DOING!")
-        #zkousim handler strcit do dictu...
-        if self.__class__.calls ==0:
-            self.__class__.runningHandlers[0] = self
+    def __init__(self,
+                 server_address: tuple[str | bytes | bytearray, int],
+                 RequestHandlerClass: typing.Callable[[typing.Any, typing.Any, typing.Self], BaseRequestHandler],
+                 bind_and_activate: bool = False,
+                 running: bool = True,
+                 masterObject: CustomHTTPServer_Server = None
+                ) -> None:
+        
+        super(CustomHTTPServer_RequestReceiver, self).__init__(server_address, RequestHandlerClass, bind_and_activate)
+        self.master:CustomHTTPServer_Server = masterObject
+        self.keepRunning:bool               = running
+        self.keepCalculating:bool           = True
+        self.calculationThread:None|threading.Thread = None
+        try:
+            self.__class__.userInputs[self.master]  is not None
+            self.__class__.results[self.master]     is not None
+        except:
+            self.__class__.userInputs[self.master]  = []
+            self.__class__.results[self.master]     = []
+    
+    def serve_forever(self, poll_interval: float = 0.5) -> None:
+        print("-----------------------------------------RECEIVER.SERVE_FOREVER")
+        while self.keepRunning:
+            self.handle_request()
+            print(self.__class__.userInputs)
+        print("server is shutting down")
+        
+    def loopCalculation(self):
+        from B_000_globalDependecies import sin
+        t= 0.0
+        while self.keepCalculating: 
+            self.results[self.master].append(sin(t))
+            t += 0.05
+            sleep(0.10)
+    
+    def loopCalculationThreadMaker(self) -> threading.Thread:
+        self.keepCalculating = True
+        nuThread = threading.Thread(target= self.loopCalculation, args=())
+        nuThread.daemon = True
+        nuThread.start
+        return nuThread
+        
+    
+    
             
+       
+class CustomHTTPServer_RequestProcessor(BaseHTTPRequestHandler):
+    """
+    CustomHTTPServer_RequestProcessor je docasny objekt, ktery vznikne pri zpracovavani prijateho requestu z CustomHTTPServer_RequestReceiver.
+    Neni mozne na nem nechat cokoliv bezet asynchronne, atp, pro kazde zpracovani prijateho requestu se vytvori nova instance tohoto objektu.
+    Veskere persistentni operace musi bezet bud na CustomHTTPServer_RequestProcessor.server, coz je instance CustomHTTPServer_RequestReceiver,
+    nebo primo na obalovacim objektu CustomHTTPServer_Server
+    """
+    callsPOST:  int = 0
+    callsGET:   int = 0
+    processorsToOutputs: typing.Dict[typing.Self, float] = {}
+    processorsToOutputs: typing.Dict[typing.Self, float] = {}
+    serversToProcessors: typing.Dict[CustomHTTPServer_Server, typing.Self] = {} 
+    
+    def _responseWithHeaders(self, header: str = "Content-type", dataType: str = "text/plain") -> None:
         self.send_response(200)
-        self.send_header("Content-type", "text/html")
+        self.send_header(keyword=header, value=dataType)
         self.end_headers()
         
-        htmlStr: str = HTMLhandler.header("Client-Node test")
-        self.wfile.write(htmlStr)
-        self.__class__.calls += 1
-        print(f"{self}: do_GET done")
+    def do_GET(self) -> None:
+        print("-----------------------------------------PROCESSOR.GET")
+        self.__class__.callsGET += 1 
+        self._responseWithHeaders(header="Content-type", dataType="text/plain")
+        self.wfile.write(f"GET__PROCESSOR: {self}".encode("utf-8"))
+
     
     def do_POST(self) -> None:
-        content_length  = int(self.headers['Content-Length'])
-        print(self, self.__class__.runningResults)
-        post_data       = str(self.__class__.runningResults[self])
+        print("-----------------------------------------PROCESSOR.POST")
+        self.__class__.callsPOST += 1
+        contentByteLength   = int(self.headers['Content-Length'])
+        postReceivedData    = self.rfile.read(contentByteLength).decode('utf-8')
         
+        postReceivedDataHandled = convertString(postReceivedData)
+        if postReceivedDataHandled == False:
+            print(f"{self} shutting {self.server} down!")
+            self.server.keepRunning = False
         
-        response    = "ahoj!"
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(post_data)
+        elif postReceivedData == "stopLoop":
+            print(f"{self} shutting {self.server.loopCalculation} down!")
+            self.server.keepCalculating = False
+            self.server.calculationThread = None
+        
+        elif postReceivedData == "startLoop":
+            print(f"{self} starting {self.server.loopCalculation}!")
+            self.server.calculationThread = self.server.loopCalculationThreadMaker()
+              
+        self.server.__class__.userInputs[self.server.master].append(postReceivedDataHandled)
+        #vypada to krkolomne, ale ... pristupuji k tridnimu atributu userInputs a keyem je encapsulator celeho procesu.
 
-    #takto jsem obešel neschopnost přistoupit k self
-    def run_loop(self):
-        i = 0
-        target=self
-        while True:
-            print(target)
-            CustomServerClientNode.runningResults[target] = i
-            print(CustomServerClientNode.runningResults)
-            print("Running background task...")
-            sleep(10)  # Simulate a task that runs every 5 seconds
-            i+=1
+        self._responseWithHeaders(header="Content-type", dataType="text/plain")
+        self.wfile.write(f"SET__PROCESSOR: {self}\n".encode("utf-8"))
+        self.wfile.write(f"SET__RECEIVER: {self.server}\n".encode("utf-8"))
+        self.wfile.write(f"SET__MASTER: {self.server.master}\n".encode("utf-8"))
+        self.wfile.write(f"SET__USERINPUTS: {self.server.__class__.userInputs}".encode("utf-8"))
+        self.wfile.write(f"SET__RESULTS: {self.server.__class__.results}".encode("utf-8"))
+    
 
-class CustomServerHandlerClientNode:
-    def __init__(self, ip: str= None, port: int= None) -> None:
-        self._ip:       str = ip
-        self._port:     int = port
-        self._server        = self.startServer()
+class CustomHTTPServer_Server(Singleton):
+    ip: str
+    port: int
     
+    def __new__(cls, *args, **kwargs) -> CustomHTTPServer_Server:
+        return super(CustomHTTPServer_Server, cls).__new__(cls, *args, **kwargs)
     
-    def startServer(self) -> HTTPServer:
-        print(f"{self} started!")
-        myServer = HTTPServer(server_address=(self._ip, self._port), RequestHandlerClass=CustomServerClientNode)
-        
-        # to serve_forever musi byt ve vlastnim vlaknu, proto to neslo
-        serveThread = threading.Thread(target=myServer.serve_forever)
-        serveThread.daemon=True
-        serveThread.start()
-        
-        #snazim se dostat do dictu handleru jeho instanci
-        conn = http.client.HTTPConnection(self._ip, self._port)
-        conn.request("GET", "/")
-        sleep(1)
-        
-        
-        print(myServer.RequestHandlerClass.runningHandlers)
-        myServer.RequestHandlerClass.runningHandlers[myServer] = myServer.RequestHandlerClass.runningHandlers[0]
-        myServer.RequestHandlerClass.runningHandlers[0] = None
-        print(myServer)
-        print(myServer.RequestHandlerClass.runningHandlers)
-        print(myServer.RequestHandlerClass.runningHandlers[myServer])
-        print()
-        print()
-        loop_thread = threading.Thread(
-                    target=myServer.RequestHandlerClass.runningHandlers[myServer].run_loop)
-        loop_thread.daemon = True  # This allows the thread to exit when the main program does
-        loop_thread.start()
-        
-        
-        return myServer
+    def __init__(self, ip: str, port: int) -> None:
+        self.ip             = ip
+        self.port           = port
+        self.receiver       = CustomHTTPServer_RequestReceiver(server_address=(self.ip, self.port),
+                                                               RequestHandlerClass=CustomHTTPServer_RequestProcessor,
+                                                               masterObject=self,
+                                                               bind_and_activate=False,
+                                                               running=True)
+
+         
+    def start(self) -> threading.Thread:
+        self.receiver.keepRunning   = True
+        runThread                   = threading.Thread(target=self.receiver.serve_forever,args=())
+        runThread.daemon            = False #daemon True se ujisti, ze thread skonci a python program dojede do konce.
+        runThread.start()
+        return runThread
     
-    def stopServer(self) -> None:
-        self.server.server_close()
-        print(f"{self} stopped!")
+    def stop(self) -> None:
+        self.receiver.keepRunning = False
+    
+    def __str__(self) -> str:
+        strTop:str = f"|   {self.__class__.__name__} @ {hex(id(self))}"
+        strMid:str = f"|   ip: {self.ip}"
+        strBot:str = f"|   port: {self.port}"
+        maxSymbols: int = max(len(strTop), len(strMid), len(strBot))
+        _:str = (8+maxSymbols)*"-"
+        bracket: str = f"[{_}]"
+        
+        strTop += (" "*(len(bracket) - 1 - len(strTop)) + "|") 
+        strMid += (" "*(len(bracket) - 1 - len(strMid)) + "|") 
+        strBot += (" "*(len(bracket) - 1 - len(strBot)) + "|") 
+        
+        returnVal: str = "\n".join(("",bracket, strTop, strMid, strBot, bracket,""))
+        return returnVal
     
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__}:: {self._ip}:{self._port} @ <{hex(id(self))}>>"
-    
-    
-    
-if __name__ == "__main__":
-    server = CustomServerHandlerClientNode(ip='193.84.167.78', port=8080)
-    try:
-        server.startServer()
-    except KeyboardInterrupt:
-        server.stopServer()
-
-#curl -X POST http://193.84.167.78:8080 -H "Content-Type: application/json" -d '{"name":"Alice","surname":"Pfeifer"}'     
+        return f"<{self.__class__.__name__} @ {hex(id(self))}>"
+      
+    def __del__(self) -> None:
+        #self.stop()
+        #self.receiver.server_close()
+        print(f"Terminating {self.__repr__()}")
         
-"""
-application/json:
-Used for JSON data. Commonly used in REST APIs.
-Example: {"name": "Alice"}
-application/xml:
-Used for XML data.
-Example: <name>Alice</name>
-text/html:
-Used for HTML documents.
-Example: <html><body>Hello, World!</body></html>
-text/plain:
-Used for plain text data.
-Example: Hello, World!
-application/x-www-form-urlencoded:
-Used for form submissions. Data is encoded as key-value pairs.
-Example: name=Alice&age=30
-multipart/form-data:
-Used for forms that include file uploads. It allows for sending files and data together.
-Example: Used in file upload forms.
-application/octet-stream:
-Used for binary data. This is a generic type for binary files.
-Example: Used when the type is unknown.
-image/jpeg:
-Used for JPEG images.
-Example: Sending image files.
-image/png:
-Used for PNG images.
-audio/mpeg:
-Used for MPEG audio files.
-"""
+     
+    
+
+    #server.stop()   
+
+
+a=CustomHTTPServer_Server("5", 5)
+
+
+#curl -X GET http://193.84.167.78:8080 & echo "\n" &curl -X POST http://193.84.167.78:8080 -H "Content-Type: text/plain" -d "false"
+

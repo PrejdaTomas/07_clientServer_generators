@@ -1,16 +1,10 @@
 from __future__ import annotations
-from B_000_globalDependecies import typing, types, threading, sin, cos, sqrt, sleep, constants
+from B_000_globalDependecies import Instantiable, typing, types, threading, constants, sin, cos, sleep
 import B_001_decorators
 from B_002_helperFuncs import divBy2, NoneOrBool
 
-class reprObject(object):
-    def __repr__(self)-> str: return f"{self.__class__.__name__} <{hex(id(self))}>"
-    
-    def __del__(self) -> str: return f"{self} TERMINATED!"
 
-
-
-class RandomPositionWrapper(reprObject):
+class RandomPositionWrapper(Instantiable):
     def __init__(self) -> None:
         self.r = 0.5
         self.x = 0.0
@@ -44,7 +38,7 @@ class RandomPositionWrapper(reprObject):
             
         
         
-class NodeWrapper(reprObject):
+class NodeWrapper(Instantiable):
     def __init__(self) -> None:
         self._exiting: bool = False
         self.node_gen: typing.Generator[int, typing.Any, None] = self._initialize_node()
@@ -76,7 +70,7 @@ class NodeWrapper(reprObject):
         #except StopIteration:
         #    print(f"{self}: terminated!")
 
-class HostWrapper(reprObject):
+class HostWrapper(Instantiable):
     def __init__(self, node_wrapper: NodeWrapper) -> None:
         self._exiting: bool = False
         self.node_wrapper: NodeWrapper = node_wrapper

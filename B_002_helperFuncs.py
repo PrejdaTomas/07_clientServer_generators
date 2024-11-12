@@ -14,7 +14,7 @@ def convertString(ipt: str) -> None|bool|float|str:
     elif iptMod == "true": return True
     
     try:
-        returnVal = float(iptMod)
+        returnVal = float(eval(iptMod))
         return returnVal
     except:
         return ipt.strip()
